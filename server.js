@@ -14,11 +14,31 @@ app.post('/solve', async (req, res) => {
     return res.status(400).json({ error: 'No question provided.' });
   }
   try {
-    const apiUrl = `https://api.wolframalpha.com/v1/result?appid=${WOLFRAM_APP_ID}&i=${encodeURIComponent(question)}`;
+    // Call Wolfram Alpha Full Results API with step-by-step podstate, output as JSON
+    const apiUrl = `https://api.wolframalpha.com/v2/query?appid=${WOLFRAM_APP_ID}&input=${encodeURIComponent(question)}&podstate=Step-by-step+solution&output=json`;
     const response = await fetch(apiUrl);
-    if (!response.ok) throw new Error('Wolfram Alpha error');
-    const answer = await response.text();
-    res.json({ result: answer });
+    const data = await response.json();
+
+    // Look for the step-by-step pod and also the main result
+    let steps = null;
+    let answer = null;
+    if (data.queryresult && data.queryresult.pods) {
+      // Find step-by-step pod
+      const stepPod = data.queryresult.pods.find(pod =>
+        pod.title && pod.title.toLowerCase().includes("step-by-step")
+      );
+      if (stepPod && stepPod.subpods && stepPod.subpods.length > 0) {
+        steps = stepPod.subpods.map(sub => sub.plaintext).filter(Boolean).join('\n\n');
+      }
+      // Find the main result pod (usually id=Result or primary)
+      const answerPod = data.queryresult.pods.find(pod =>
+        pod.id === "Result" || pod.primary
+      );
+      if (answerPod && answerPod.subpods && answerPod.subpods.length > 0) {
+        answer = answerPod.subpods.map(sub => sub.plaintext).filter(Boolean).join('\n');
+      }
+    }
+    res.json({ steps, answer });
   } catch (e) {
     res.status(500).json({ error: 'Error contacting Wolfram Alpha.' });
   }
